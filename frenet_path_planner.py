@@ -9,7 +9,7 @@ dt = 0.1
 
 init_ddl = 0
 init_dl = 0
-init_l = 0
+init_l = 0.0
 
 ref_l = 0
 
@@ -53,10 +53,10 @@ H = np.tril(np.ones((horizon, horizon))*dt, -1)
 
 H2 = np.dot(H, H)
 H3 = np.dot(np.dot(H, H), H)
-pos_weight = 300
-jerk_weight = 10
+pos_weight = 600
+jerk_weight = 100
 acc_weight = 30000
-vel_weight = 200
+vel_weight = 120
 
 Q = np.eye(horizon)*pos_weight
 R = np.eye(horizon)*jerk_weight
@@ -100,15 +100,15 @@ l = np.vstack([j_min, a_min, l_min])
 # print("u: ", u)
 # print(l_min)
 prob = osqp.OSQP()
-prob.setup(P, q, A, l, u, warm_start=False, verbose=True)
+prob.setup(P, q, A, l, u, warm_start=True, verbose=True)
 res = prob.solve()
 # print(res.x)
 res_jerk = res.x
 # print(C0)
-x = np.dot(H3, res_jerk)
+x = np.dot(H3, res_jerk) + np.reshape(C0, (1, horizon))
 # print(x)
 
-plt.plot(x)
+plt.plot(x[0])
 plt.plot(l_min)
 plt.plot(l_max)
 plt.show()
