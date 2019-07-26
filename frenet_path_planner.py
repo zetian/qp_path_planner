@@ -3,8 +3,9 @@ import numpy as np
 from matplotlib import pyplot as plt
 import scipy.sparse as sparse
 from scipy.linalg import block_diag
+import time
 
-horizon = 300
+horizon = 400
 dt = 0.1
 
 init_ddl = 0
@@ -80,7 +81,8 @@ q = q + 2*np.dot(np.dot(np.transpose(v0 + np.dot(H, a0)), F), H2)
 q = q + 2*np.dot(np.dot(np.transpose(a0), G), H)
 q = np.reshape(q, (horizon, 1))
 # print("q:", q)
-A = np.vstack([np.eye(horizon), H, H3])
+# A = np.vstack([np.eye(horizon), H, H3])
+A = np.vstack([H, H3])
 # print(A)
 A = sparse.csc_matrix(A)
 
@@ -94,14 +96,23 @@ l_min = np.reshape(l_min, (horizon, 1)) - C0
 # l_min[1] = -np.inf
 # l_min[2] = -np.inf
 
-u = np.vstack([j_max, a_max, l_max])
-l = np.vstack([j_min, a_min, l_min])
+# u = np.vstack([j_max, a_max, l_max])
+# l = np.vstack([j_min, a_min, l_min])
+
+u = np.vstack([a_max, l_max])
+l = np.vstack([a_min, l_min])
 # print("l: ", l)
 # print("u: ", u)
 # print(l_min)
+
+start = time.time()
 prob = osqp.OSQP()
 prob.setup(P, q, A, l, u, warm_start=True, verbose=True)
 res = prob.solve()
+
+end = time.time()
+print("Computation time: ", end - start)
+
 # print(res.x)
 res_jerk = res.x
 # print(C0)
