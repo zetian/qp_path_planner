@@ -98,8 +98,8 @@ A_init_v[1] = 1
 # A = sparse.vstack([Aeq, Aineq]).tocsc()
 A = sparse.vstack([Aeq, Aineq_l, Aineq_a, A_init_l, A_init_v]).tocsc()
 
-ueq = np.zeros((horizon - 1)*(n_states - 1))
-ueq = np.reshape(ueq, ((horizon - 1)*(n_states - 1), 1))
+ueq = np.zeros(((horizon - 1)*(n_states - 1), 1))
+# ueq = np.reshape(ueq, ((horizon - 1)*(n_states - 1), 1))
 
 leq = ueq
 
