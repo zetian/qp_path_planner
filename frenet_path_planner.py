@@ -5,136 +5,149 @@ import scipy.sparse as sparse
 from scipy.linalg import block_diag
 import time
 
-horizon = 400
-dt = 0.1
+class FrenetPathPlanner:
+    def __init__(self, horizon):
+        self.horizon = horizon
+        self.uniform_ds = 0.1
+        self.ds = np.ones(self.horizon - 1)*self.uniform_ds
+        self.init_l = 0.0
+        self.init_dl = 0.0
+        self.init_ddl = 0.0
+        self.l_ref = np.zeros(self.horizon)
+        self.l_weight = 600
+        self.dl_weight = 120
+        self.ddl_weight = 30000
+        self.dddl_weight = 100
+        self.l_max = np.ones((self.horizon, 1))
+        self.l_min = np.ones((self.horizon, 1))
+        self.ddl_max = np.ones((self.horizon, 1))
+        self.ddl_min = np.ones((self.horizon, 1))
+        self.l_res = np.zeros(self.horizon)
+    
+    def set_reference_l(self, l_ref):
+        self.l_ref = l_ref
+    
+    def set_weight(self, l_weight, dl_weight, ddl_weight, dddl_weight):
+        self.l_weight = l_weight
+        self.dl_weight = dl_weight
+        self.ddl_weight = ddl_weight
+        self.dddl_weight = dddl_weight    
+    
+    def set_initial_condition(self, init_l, init_dl,init_ddl):
+        self.init_l = init_l
+        self.init_dl = init_dl
+        self.init_ddl = init_ddl
 
-init_ddl = 0
-init_dl = 0
-init_l = 0.0
+    def set_l_boundary(self, l_max, l_min):
+        self.l_max = np.reshape(l_max, (self.horizon, 1))
+        self.l_min = np.reshape(l_min, (self.horizon, 1))
 
-ref_l = 0
+    def set_ddl_boundary(self, ddl_max, ddl_min):
+        self.ddl_max = np.ones((self.horizon, 1))*ddl_max
+        self.ddl_min = np.ones((self.horizon, 1))*ddl_min
+    
+    def set_uniform_ds(self, ds):
+        self.uniform_ds = ds
+        self.ds = np.ones(self.horizon - 1)*self.uniform_ds
+    
+    def set_ds(self, ds):
+        self.ds = ds
 
-jerk_max = 5
-jerk_min = -5
+    def get_optimized_l(self):
+        return self.l_res
 
-acc_max = 0.2
-acc_min = -0.2
+    def compute_P_q(self):
+        weight = np.array([[self.l_weight, 0.0, 0.0, 0.0],
+                    [0.0, self.dl_weight, 0.0, 0.0],
+                    [0.0, 0.0, self.ddl_weight, 0.0],
+                    [0.0, 0.0, 0.0, self.dddl_weight]])
+        P = sparse.kron(sparse.eye(self.horizon), weight).tocsc()
+        q = np.zeros(self.horizon*4)
+        for i in range(self.horizon):
+            q[i*4] = -self.l_weight*self.l_ref[i]
+        return P, q
+    
+    def compute_A(self):
+        Ad = []
+        for i in range(self.horizon - 1):
+            f_i = np.array([[1.0, self.ds[i], 0.0, 0.0],
+                            [0.0, 1.0, self.ds[i], 0.0],
+                            [0.0, 0.0,  1.0, self.ds[i]]])  
+            Ad.append(f_i)  
+        Ax = sparse.csr_matrix(block_diag(*Ad))
+        f_2 = np.array([[-1.0, 0.0, 0.0, 0.0],
+                        [0.0, -1.0, 0.0, 0.0],
+                        [0.0, 0.0, -1.0, 0.0]])
+        Ay = sparse.kron(sparse.eye(self.horizon - 1), f_2)
+        off_set = np.zeros(((self.horizon - 1)*3, 4))
+        Ax = sparse.hstack([Ax, off_set])
+        Ay = sparse.hstack([off_set, Ay])
+        Aeq = Ax + Ay
+        ineq_l = np.array([1.0, 0.0, 0.0, 0.0])
+        ineq_ddl = np.array([0.0, 0.0, 1.0, 0.0])
+        Aineq_l = sparse.kron(sparse.eye(self.horizon), ineq_l)
+        Aineq_ddl = sparse.kron(sparse.eye(self.horizon), ineq_ddl)
+        A_init_l = np.zeros(self.horizon*4)
+        A_init_l[0] = 1
+        A_init_dl = np.zeros(self.horizon*4)
+        A_init_dl[1] = 1
+        A_init_ddl = np.zeros(self.horizon*4)
+        A_init_ddl[2] = 1
 
-l_max = []
-l_min = []
-for i in range(horizon):
-    u = 0.2
-    if (i > 150 and i < 160):
-        u = -0.1
-    l_max.append(u)
-    l = -0.2
-    if (i > 40 and i < 50):
-        l = 0.1
-    l_min.append(l)
-l_max = np.reshape(l_max, (horizon, 1))
-l_min = np.reshape(l_min, (horizon, 1))
+        A = sparse.vstack([Aeq, Aineq_l, Aineq_ddl, A_init_l, A_init_dl, A_init_ddl]).tocsc()
+        return A
 
-j_max = np.ones((horizon, 1))*jerk_max
-j_min = np.ones((horizon, 1))*jerk_min
+    def compute_u_l(self):
+        ueq = np.zeros(((self.horizon - 1)*3, 1))
+        leq = ueq
+        uineq = np.vstack([self.l_max, self.ddl_max])
+        lineq = np.vstack([self.l_min, self.ddl_min])
+        u_init = np.array([[self.init_l],[self.init_dl], [self.init_ddl]])
+        l_init = u_init
+        l = np.vstack([leq, lineq, l_init])
+        u = np.vstack([ueq, uineq, u_init])
+        return u, l
 
-a_max = np.ones((horizon, 1))*acc_max
-a_min = np.ones((horizon, 1))*acc_min
-# a_max[0] = np.inf
-# a_min[0] = -np.inf
+    def __call__(self):
+        P, q = self.compute_P_q()
+        A = self.compute_A()
+        u, l = self.compute_u_l()
+        prob = osqp.OSQP()
+        prob.setup(P, q, A, l, u, warm_start=True, verbose=False)
+        res = prob.solve()
+        for i in range(self.horizon):
+            self.l_res[i] = res.x[i*4]
+    
+    def plot(self):
+        plt.plot(self.l_res)
+        plt.plot(self.l_min)
+        plt.plot(self.l_max)
+        plt.show()
 
-
-a0 = init_ddl*np.ones((horizon, 1))
-# print(a0)
-v0 = init_dl*np.ones((horizon, 1))
-l0 = init_l*np.ones((horizon, 1))
-L_ref = ref_l*np.ones((horizon, 1))
-
-H = np.tril(np.ones((horizon, horizon))*dt, -1)
-# print(np.dot(H, a0))
-
-H2 = np.dot(H, H)
-H3 = np.dot(np.dot(H, H), H)
-pos_weight = 600
-jerk_weight = 100
-acc_weight = 30000
-vel_weight = 120
-
-Q = np.eye(horizon)*pos_weight
-R = np.eye(horizon)*jerk_weight
-G = np.eye(horizon)*acc_weight
-F = np.eye(horizon)*vel_weight
-
-C0 = np.dot(H2, a0) + np.dot(H, v0) + l0
-
-
-
-# print("C0: ", C0)
-# print("l_max: ", l_max - C0)
-P = np.dot(np.dot(np.transpose(H3), Q), H3) + R
-P = P + np.dot(np.dot(np.transpose(H2), F), H2)
-P = P + np.dot(np.dot(np.transpose(H), G), H)
-# print(P)
-P = sparse.csc_matrix(P)
-
-q = np.dot(np.dot(np.transpose(C0 - L_ref), Q), H3)
-q = q + np.dot(np.dot(np.transpose(v0 + np.dot(H, a0)), F), H2)
-q = q + np.dot(np.dot(np.transpose(a0), G), H)
-q = np.reshape(q, (horizon, 1))
-# print("q:", q)
-# A = np.vstack([np.eye(horizon), H, H3])
-A = np.vstack([H, H3])
-# print(A)
-A = sparse.csc_matrix(A)
-
-l_max = np.reshape(l_max, (horizon, 1)) - C0
-l_min = np.reshape(l_min, (horizon, 1)) - C0
-# l_max[0] = np.inf
-# l_max[1] = np.inf
-# l_max[2] = np.inf
-# print("l_min: ", l_min)
-# l_min[0] = -np.inf
-# l_min[1] = -np.inf
-# l_min[2] = -np.inf
-
-# u = np.vstack([j_max, a_max, l_max])
-# l = np.vstack([j_min, a_min, l_min])
-
-u = np.vstack([a_max, l_max])
-l = np.vstack([a_min, l_min])
-# print("l: ", l)
-# print("u: ", u)
-# print(l_min)
-
-start = time.time()
-prob = osqp.OSQP()
-prob.setup(P, q, A, l, u, warm_start=True, verbose=True)
-res = prob.solve()
-
-end = time.time()
-print("Computation time: ", end - start)
-
-# print(res.x)
-res_jerk = res.x
-# print(C0)
-x = np.dot(H3, res_jerk) + np.reshape(C0, (1, horizon))
-# print(x)
-
-plt.plot(x[0])
-plt.plot(l_min)
-plt.plot(l_max)
-plt.show()
-
-
-
-# A = sparse.vstack([sparse.csr_matrix(np.eye(horizon)), sparse.csr_matrix(H), sparse.csr_matrix(H3)]).tocsc()
-# print(A)
-# print("P: ", P)
-# print("q: ", q)
-
-
-
-# print(np.transpose(H))
-# print("Q: ", Q)
-# print("R: ", R)
-
-# print(np.dot(np.dot(H, H), H))
+if __name__ == '__main__':
+    horizon = 400
+    ds = 0.1
+    init_l = 0
+    init_dl = 0
+    init_ddl = 0
+    l_max = []
+    l_min = []
+    
+    for i in range(horizon):
+        u = 0.2
+        if (i > 150 and i < 160):
+            u = -0.1
+        l_max.append(u)
+        l = -0.2
+        if (i > 40 and i < 50):
+            l = 0.1
+        l_min.append(l)
+    ddl_max = 0.2
+    ddl_min = -0.2
+    planner = FrenetPathPlanner(horizon)
+    planner.set_uniform_ds(ds)
+    planner.set_initial_condition(init_l, init_dl, init_ddl)
+    planner.set_l_boundary(l_max, l_min)
+    planner.set_ddl_boundary(ddl_max, ddl_min)
+    planner()
+    planner.plot()

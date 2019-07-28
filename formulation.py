@@ -5,7 +5,7 @@ import scipy.sparse as sparse
 from scipy.linalg import block_diag
 import time
 
-horizon = 400
+horizon = 10
 dt = 0.1
 
 n_states = 4
@@ -109,14 +109,21 @@ leq = ueq
 uineq = np.vstack([l_max, a_max])
 lineq = np.vstack([l_min, a_min])
 
-print("leq: ", leq.shape)
-print("lineq: ", lineq.shape)
+# print("leq: ", leq.shape)
+# print("lineq: ", lineq.shape)
 
 u_init = np.array([[init_l],[init_dl]])
 l_init = u_init
 
 l = np.vstack([leq, lineq, l_init])
 u = np.vstack([ueq, uineq, u_init])
+
+print("P: ", P)
+print("q: ", q)
+print("A: ", A)
+print("u: ", u)
+print("l: ", l)
+
 
 start = time.time()
 prob = osqp.OSQP()
