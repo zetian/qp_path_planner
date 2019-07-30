@@ -14,10 +14,10 @@ class FrenetPathPlanner:
         self.init_dl = 0.0
         self.init_ddl = 0.0
         self.l_ref = np.zeros(self.horizon)
-        self.l_weight = 600
-        self.dl_weight = 120
-        self.ddl_weight = 30000
-        self.dddl_weight = 100
+        self.l_weight = 10
+        self.dl_weight = 1000
+        self.ddl_weight = 300000
+        self.dddl_weight = 300000
         self.l_max = np.ones((self.horizon, 1))
         self.l_min = np.ones((self.horizon, 1))
         self.ddl_max = np.ones((self.horizon, 1))
@@ -126,7 +126,7 @@ class FrenetPathPlanner:
 
 if __name__ == '__main__':
     horizon = 400
-    ds = 0.1
+    ds = 0.25
     init_l = 0
     init_dl = 0
     init_ddl = 0
@@ -134,13 +134,13 @@ if __name__ == '__main__':
     l_min = []
     
     for i in range(horizon):
-        u = 0.2
-        if (i > 150 and i < 160):
-            u = -0.1
+        u = 5
+        if (i > 100 and i < 140):
+            u = -2
         l_max.append(u)
-        l = -0.2
-        if (i > 40 and i < 50):
-            l = 0.1
+        l = -5
+        if (i > 300 and i < 340):
+            l = 2
         l_min.append(l)
     ddl_max = 0.2
     ddl_min = -0.2
