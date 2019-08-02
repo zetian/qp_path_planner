@@ -14,14 +14,14 @@ class FrenetPathPlanner:
         self.init_dl = 0.0
         self.init_ddl = 0.0
         self.l_ref = np.zeros(self.horizon)
-        # self.l_weight = 10
-        # self.dl_weight = 1000
-        # self.ddl_weight = 300000
-        # self.dddl_weight = 300000
-        self.l_weight = 0.1
+        self.l_weight = 1
         self.dl_weight = 1000
-        self.ddl_weight = 30000000000
-        self.dddl_weight = 300000
+        self.ddl_weight = 3000
+        self.dddl_weight = 3000
+        self.l_factor = self.l_weight**0.5
+        self.dl_factor = self.dl_weight**0.5
+        self.ddl_factor = self.ddl_weight**0.5
+        self.dddl_factor = self.dddl_weight**0.5
         self.l_max = np.ones((self.horizon, 1))
         self.l_min = np.ones((self.horizon, 1))
         self.ddl_max = np.ones((self.horizon, 1))
@@ -35,7 +35,11 @@ class FrenetPathPlanner:
         self.l_weight = l_weight
         self.dl_weight = dl_weight
         self.ddl_weight = ddl_weight
-        self.dddl_weight = dddl_weight    
+        self.dddl_weight = dddl_weight
+        self.l_factor = l_weight**0.5
+        self.dl_factor = dl_weight**0.5
+        self.ddl_factor = ddl_weight**0.5
+        self.dddl_factor = dddl_weight**0.5
     
     def set_initial_condition(self, init_l, init_dl,init_ddl):
         self.init_l = init_l
@@ -43,12 +47,12 @@ class FrenetPathPlanner:
         self.init_ddl = init_ddl
 
     def set_l_boundary(self, l_max, l_min):
-        self.l_max = np.reshape(l_max, (self.horizon, 1))
-        self.l_min = np.reshape(l_min, (self.horizon, 1))
+        self.l_max = np.reshape(l_max, (self.horizon, 1))#*self.l_factor
+        self.l_min = np.reshape(l_min, (self.horizon, 1))#*self.l_factor
 
     def set_ddl_boundary(self, ddl_max, ddl_min):
-        self.ddl_max = np.ones((self.horizon, 1))*ddl_max
-        self.ddl_min = np.ones((self.horizon, 1))*ddl_min
+        self.ddl_max = np.ones((self.horizon, 1))#*ddl_max*self.ddl_factor
+        self.ddl_min = np.ones((self.horizon, 1))#*ddl_min*self.ddl_factor
     
     def set_uniform_ds(self, ds):
         self.uniform_ds = ds
@@ -61,10 +65,14 @@ class FrenetPathPlanner:
         return self.l_res
 
     def compute_P_q(self):
-        weight = np.array([[self.l_weight, 0.0, 0.0, 0.0],
-                    [0.0, self.dl_weight, 0.0, 0.0],
-                    [0.0, 0.0, self.ddl_weight, 0.0],
-                    [0.0, 0.0, 0.0, self.dddl_weight]])
+        # weight = np.array([[self.l_weight, 0.0, 0.0, 0.0],
+        #             [0.0, self.dl_weight, 0.0, 0.0],
+        #             [0.0, 0.0, self.ddl_weight, 0.0],
+        #             [0.0, 0.0, 0.0, self.dddl_weight]])
+        weight = np.array([[1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0]])
         P = sparse.kron(sparse.eye(self.horizon), weight).tocsc()
         q = np.zeros(self.horizon*4)
         for i in range(self.horizon):
@@ -74,29 +82,29 @@ class FrenetPathPlanner:
     def compute_A(self):
         Ad = []
         for i in range(self.horizon - 1):
-            f_i = np.array([[1.0, self.ds[i], 0.0, 0.0],
-                            [0.0, 1.0, self.ds[i], 0.0],
-                            [0.0, 0.0,  1.0, self.ds[i]]])  
+            f_i = np.array([[1.0/self.l_factor, self.ds[i]/self.dl_factor, 0.0, 0.0],
+                            [0.0, 1.0/self.dl_factor, self.ds[i]/self.ddl_factor, 0.0],
+                            [0.0, 0.0,  1.0/self.ddl_factor, self.ds[i]/self.dddl_factor ]])  
             Ad.append(f_i)  
         Ax = sparse.csr_matrix(block_diag(*Ad))
-        f_2 = np.array([[-1.0, 0.0, 0.0, 0.0],
-                        [0.0, -1.0, 0.0, 0.0],
-                        [0.0, 0.0, -1.0, 0.0]])
+        f_2 = np.array([[-1.0/self.l_factor, 0.0, 0.0, 0.0],
+                        [0.0, -1.0/self.dl_factor, 0.0, 0.0],
+                        [0.0, 0.0, -1.0/self.ddl_factor, 0.0]])
         Ay = sparse.kron(sparse.eye(self.horizon - 1), f_2)
         off_set = np.zeros(((self.horizon - 1)*3, 4))
         Ax = sparse.hstack([Ax, off_set])
         Ay = sparse.hstack([off_set, Ay])
         Aeq = Ax + Ay
-        ineq_l = np.array([1.0, 0.0, 0.0, 0.0])
-        ineq_ddl = np.array([0.0, 0.0, 1.0, 0.0])
+        ineq_l = np.array([1.0/self.l_factor, 0.0, 0.0, 0.0])
+        ineq_ddl = np.array([0.0, 0.0, 1.0/self.ddl_factor, 0.0])
         Aineq_l = sparse.kron(sparse.eye(self.horizon), ineq_l)
         Aineq_ddl = sparse.kron(sparse.eye(self.horizon), ineq_ddl)
         A_init_l = np.zeros(self.horizon*4)
-        A_init_l[0] = 1
+        A_init_l[0] = 1.0/self.l_factor
         A_init_dl = np.zeros(self.horizon*4)
-        A_init_dl[1] = 1
+        A_init_dl[1] = 1.0/self.dl_factor
         A_init_ddl = np.zeros(self.horizon*4)
-        A_init_ddl[2] = 1
+        A_init_ddl[2] = 1.0/self.ddl_factor
 
         A = sparse.vstack([Aeq, Aineq_l, Aineq_ddl, A_init_l, A_init_dl, A_init_ddl]).tocsc()
         return A
@@ -106,6 +114,7 @@ class FrenetPathPlanner:
         leq = ueq
         uineq = np.vstack([self.l_max, self.ddl_max])
         lineq = np.vstack([self.l_min, self.ddl_min])
+        # u_init = np.array([[self.init_l*self.l_factor],[self.init_dl*self.dl_factor], [self.init_ddl*self.ddl_factor]])
         u_init = np.array([[self.init_l],[self.init_dl], [self.init_ddl]])
         l_init = u_init
         l = np.vstack([leq, lineq, l_init])
@@ -120,7 +129,7 @@ class FrenetPathPlanner:
         prob.setup(P, q, A, l, u, warm_start=True, verbose=True)
         res = prob.solve()
         for i in range(self.horizon):
-            self.l_res[i] = res.x[i*4]
+            self.l_res[i] = res.x[i*4]/self.l_factor
     
     def plot(self):
         plt.plot(self.l_res)
@@ -131,11 +140,12 @@ class FrenetPathPlanner:
 if __name__ == '__main__':
     horizon = 400
     ds = 0.25
-    init_l = 5
+    init_l = 0
     init_dl = 0
     init_ddl = 0
     l_max = []
     l_min = []
+    
     for i in range(horizon):
         u = 5
         # if (i > 100 and i < 140):
@@ -147,15 +157,8 @@ if __name__ == '__main__':
         # if (i > 300 and i < 340):
         #     l = 2
         l_min.append(l)
-    # for i in range(horizon):
-    #     u = 5
-    #     if (i > 100 and i < 140):
-    #         u = -2
-    #     l_max.append(u)
-    #     l = -5
-    #     if (i > 300 and i < 340):
-    #         l = 2
-    #     l_min.append(l)
+    # ddl_max = np.inf
+    # ddl_min = -np.inf
     ddl_max = 0.2
     ddl_min = -0.2
     planner = FrenetPathPlanner(horizon)
