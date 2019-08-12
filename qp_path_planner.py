@@ -26,11 +26,10 @@ class QPPathPlanner:
     def set_reference_l(self, l_ref):
         self.l_ref = l_ref
     
-    def set_weight(self, l_weight, dl_weight, ddl_weight, dddl_weight):
+    def set_weight(self, l_weight, dl_weight, ddl_weight):
         self.l_weight = l_weight
         self.dl_weight = dl_weight
-        self.ddl_weight = ddl_weight
-        self.dddl_weight = dddl_weight    
+        self.ddl_weight = ddl_weight 
     
     def set_initial_condition(self, init_l, init_dl,init_ddl):
         self.init_l = init_l
@@ -109,7 +108,7 @@ class QPPathPlanner:
         A = self.compute_A()
         u, l = self.compute_u_l()
         prob = osqp.OSQP()
-        prob.setup(P, q, A, l, u, warm_start=True, verbose=True)
+        prob.setup(P, q, A, l, u, warm_start=True, verbose=False)
         res = prob.solve()
         for i in range(self.horizon):
             self.l_res[i] = res.x[i*3]
