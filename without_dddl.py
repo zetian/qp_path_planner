@@ -5,7 +5,7 @@ import scipy.sparse as sparse
 from scipy.linalg import block_diag
 import time
 
-class FrenetPathPlanner:
+class QPPathPlanner:
     def __init__(self, horizon):
         self.horizon = horizon
         self.uniform_ds = 0.1
@@ -14,14 +14,9 @@ class FrenetPathPlanner:
         self.init_dl = 0.0
         self.init_ddl = 0.0
         self.l_ref = np.zeros(self.horizon)
-        self.l_weight = 10
-        self.dl_weight = 1000
-        self.ddl_weight = 300000
-        self.dddl_weight = 300000
-        # self.l_weight = 0.1
-        # self.dl_weight = 1000
-        # self.ddl_weight = 30000000000
-        # self.dddl_weight = 300000
+        self.l_weight = 1
+        self.dl_weight = 100
+        self.ddl_weight = 30000
         self.l_max = np.ones((self.horizon, 1))
         self.l_min = np.ones((self.horizon, 1))
         self.ddl_max = np.ones((self.horizon, 1))
@@ -31,11 +26,10 @@ class FrenetPathPlanner:
     def set_reference_l(self, l_ref):
         self.l_ref = l_ref
     
-    def set_weight(self, l_weight, dl_weight, ddl_weight, dddl_weight):
+    def set_weight(self, l_weight, dl_weight, ddl_weight):
         self.l_weight = l_weight
         self.dl_weight = dl_weight
         self.ddl_weight = ddl_weight
-        self.dddl_weight = dddl_weight    
     
     def set_initial_condition(self, init_l, init_dl,init_ddl):
         self.init_l = init_l
@@ -61,48 +55,45 @@ class FrenetPathPlanner:
         return self.l_res
 
     def compute_P_q(self):
-        weight = np.array([[self.l_weight, 0.0, 0.0, 0.0],
-                    [0.0, self.dl_weight, 0.0, 0.0],
-                    [0.0, 0.0, self.ddl_weight, 0.0],
-                    [0.0, 0.0, 0.0, self.dddl_weight]])
+        weight = np.array([[self.l_weight, 0.0, 0.0],
+                    [0.0, self.dl_weight, 0.0],
+                    [0.0, 0.0, self.ddl_weight]])
         P = sparse.kron(sparse.eye(self.horizon), weight).tocsc()
-        q = np.zeros(self.horizon*4)
+        q = np.zeros(self.horizon*3)
         for i in range(self.horizon):
-            q[i*4] = -self.l_weight*self.l_ref[i]
+            q[i*3] = -self.l_weight*self.l_ref[i]
         return P, q
     
     def compute_A(self):
         Ad = []
         for i in range(self.horizon - 1):
-            f_i = np.array([[1.0, self.ds[i], 0.0, 0.0],
-                            [0.0, 1.0, self.ds[i], 0.0],
-                            [0.0, 0.0,  1.0, self.ds[i]]])  
+            f_i = np.array([[1.0, self.ds[i], 0.0],
+                            [0.0, 1.0, self.ds[i]]])  
             Ad.append(f_i)  
         Ax = sparse.csr_matrix(block_diag(*Ad))
-        f_2 = np.array([[-1.0, 0.0, 0.0, 0.0],
-                        [0.0, -1.0, 0.0, 0.0],
-                        [0.0, 0.0, -1.0, 0.0]])
+        f_2 = np.array([[-1.0, 0.0, 0.0],
+                        [0.0, -1.0, 0.0]])
         Ay = sparse.kron(sparse.eye(self.horizon - 1), f_2)
-        off_set = np.zeros(((self.horizon - 1)*3, 4))
+        off_set = np.zeros(((self.horizon - 1)*2, 3))
         Ax = sparse.hstack([Ax, off_set])
         Ay = sparse.hstack([off_set, Ay])
         Aeq = Ax + Ay
-        ineq_l = np.array([1.0, 0.0, 0.0, 0.0])
-        ineq_ddl = np.array([0.0, 0.0, 1.0, 0.0])
+        ineq_l = np.array([1.0, 0.0, 0.0])
+        ineq_ddl = np.array([0.0, 0.0, 1.0])
         Aineq_l = sparse.kron(sparse.eye(self.horizon), ineq_l)
         Aineq_ddl = sparse.kron(sparse.eye(self.horizon), ineq_ddl)
-        A_init_l = np.zeros(self.horizon*4)
+        A_init_l = np.zeros(self.horizon*3)
         A_init_l[0] = 1
-        A_init_dl = np.zeros(self.horizon*4)
+        A_init_dl = np.zeros(self.horizon*3)
         A_init_dl[1] = 1
-        A_init_ddl = np.zeros(self.horizon*4)
+        A_init_ddl = np.zeros(self.horizon*3)
         A_init_ddl[2] = 1
 
         A = sparse.vstack([Aeq, Aineq_l, Aineq_ddl, A_init_l, A_init_dl, A_init_ddl]).tocsc()
         return A
 
     def compute_u_l(self):
-        ueq = np.zeros(((self.horizon - 1)*3, 1))
+        ueq = np.zeros(((self.horizon - 1)*2, 1))
         leq = ueq
         uineq = np.vstack([self.l_max, self.ddl_max])
         lineq = np.vstack([self.l_min, self.ddl_min])
@@ -120,7 +111,7 @@ class FrenetPathPlanner:
         prob.setup(P, q, A, l, u, warm_start=True, verbose=True)
         res = prob.solve()
         for i in range(self.horizon):
-            self.l_res[i] = res.x[i*4]
+            self.l_res[i] = res.x[i*3]
     
     def plot(self):
         plt.plot(self.l_res)
@@ -129,36 +120,25 @@ class FrenetPathPlanner:
         plt.show()
 
 if __name__ == '__main__':
-    horizon = 50
+    horizon = 400
     ds = 0.25
-    init_l = 5
+    init_l = 0
     init_dl = 0
     init_ddl = 0
     l_max = []
     l_min = []
     for i in range(horizon):
         u = 5
-        # if (i > 100 and i < 140):
-        #     u = -2
-        if (i > 350 and i < 380):
-            u = 3
+        if (i > 100 and i < 140):
+            u = -2
         l_max.append(u)
         l = -5
-        # if (i > 300 and i < 340):
-        #     l = 2
+        if (i > 300 and i < 340):
+            l = 2
         l_min.append(l)
-    # for i in range(horizon):
-    #     u = 5
-    #     if (i > 100 and i < 140):
-    #         u = -2
-    #     l_max.append(u)
-    #     l = -5
-    #     if (i > 300 and i < 340):
-    #         l = 2
-    #     l_min.append(l)
     ddl_max = 0.2
     ddl_min = -0.2
-    planner = FrenetPathPlanner(horizon)
+    planner = QPPathPlanner(horizon)
     planner.set_uniform_ds(ds)
     planner.set_initial_condition(init_l, init_dl, init_ddl)
     planner.set_l_boundary(l_max, l_min)

@@ -1,1 +1,1 @@
-# frenet_path_planner
+# quartic programming path planner
